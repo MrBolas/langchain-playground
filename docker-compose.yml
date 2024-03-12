@@ -1,0 +1,34 @@
+version: '3'
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - 11434:11434
+    volumes:
+      - .:/code
+      - ./ollama/ollama:/root/.ollama
+    container_name: ollama
+    pull_policy: always
+    tty: true
+    restart: always
+
+  chromadb:
+    image: chromadb/chroma
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ChromaDB:/app/ChromaDB
+
+  anythingllm:
+    image: mintplexlabs/anythingllm
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./anythingllm:/app/anythingllm
+    environment:
+      - CHROMA_URL=http://chromadb:8000
+      - OLLAMA_URL=http://ollama:11434
+    depends_on:
+      - chromadb
+      - ollama
+    restart: always

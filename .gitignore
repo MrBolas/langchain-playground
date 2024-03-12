@@ -8,6 +8,9 @@
 *.so
 *.dylib
 
+ollama/*
+ChromaDB/*
+anythingllm/*
 # Test binary, built with `go test -c`
 *.test
 
