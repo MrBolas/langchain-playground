@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
-	chroma_go "github.com/amikos-tech/chroma-go"
+	"github.com/amikos-tech/chroma-go/types"
 	"github.com/google/uuid"
+	"github.com/joho/godotenv"
 	"github.com/tmc/langchaingo/embeddings"
+	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/schema"
 	"github.com/tmc/langchaingo/vectorstores"
@@ -17,11 +18,23 @@ import (
 )
 
 func main() {
+
+	err := godotenv.Load(".env")
+	if err != nil {
+		log.Fatalf("Error loading .env file: %s", err)
+	}
+
 	ollamaLLM, err := ollama.New(ollama.WithModel("mistral"))
 	if err != nil {
 		log.Fatal(err)
 	}
-	ollamaEmbeder, err := embeddings.NewEmbedder(ollamaLLM)
+
+	ollamaEmbeddingsLLM, err := ollama.New(ollama.WithModel("nomic-embed-text"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ollamaEmbeder, err := embeddings.NewEmbedder(ollamaEmbeddingsLLM)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -30,7 +43,7 @@ func main() {
 	store, errNs := chroma.New(
 		chroma.WithChromaURL(os.Getenv("CHROMA_URL")),
 		chroma.WithEmbedder(ollamaEmbeder),
-		chroma.WithDistanceFunction(chroma_go.COSINE),
+		chroma.WithDistanceFunction(types.COSINE),
 		chroma.WithNameSpace(uuid.New().String()),
 	)
 	if errNs != nil {
@@ -114,12 +127,27 @@ func main() {
 
 	// print out the results of the run
 	fmt.Printf("Results:\n")
-	for ecI, ec := range exampleCases {
+	for ecI, _ := range exampleCases {
 		texts := make([]string, len(results[ecI]))
 		for docI, doc := range results[ecI] {
 			texts[docI] = doc.PageContent
 		}
-		fmt.Printf("%d. case: %s\n", ecI+1, ec.name)
-		fmt.Printf("    result: %s\n", strings.Join(texts, ", "))
+
+		log.Printf(" %+v\n", texts)
+
+		ctx := context.Background()
+		content := []llms.MessageContent{
+			llms.TextParts(schema.ChatMessageTypeSystem, "You are an assistant expert in cities. Elaborate on the cities prompted."),
+			llms.TextParts(schema.ChatMessageTypeHuman, texts[0]),
+		}
+		completion, err := ollamaLLM.GenerateContent(ctx, content)
+		if err != nil {
+			log.Fatalf("GenerateContent: %v\n", err)
+		}
+
+		fmt.Printf("c: %s", completion)
+		//fmt.Printf("%d. case: %s\n", ecI+1, ec.name)
+		//fmt.Printf("    result: %s\n", strings.Join(texts, ", "))
+
 	}
 }
