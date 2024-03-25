@@ -25,8 +25,23 @@ func main() {
 		log.Println("Error loading .env file")
 	}
 
+	col, ok := os.LookupEnv("COLLECTION")
+	if !ok {
+		log.Panic("COLLECTION env var not set")
+	}
+
+	embbedding, ok := os.LookupEnv("EMBBEDDING_MODEL")
+	if !ok {
+		log.Panic("EMBBEDDING_MODEL env var not set")
+	}
+
+	chromaUrl, ok := os.LookupEnv("CHROMA_URL")
+	if !ok {
+		log.Panic("CHROMA_URL env var not set")
+	}
+
 	//load vector store
-	store := repository.NewChromaStore("testCollection1", "nomic-embed-text")
+	store := repository.NewChromaStore(col, embbedding, chromaUrl)
 
 	// interactiveMode := flag.Bool("i", false, "interactive mode")
 	// targetId := flag.String("t", "", "target id")

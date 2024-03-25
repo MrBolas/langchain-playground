@@ -2,7 +2,6 @@ package repository
 
 import (
 	"log"
-	"os"
 
 	"github.com/amikos-tech/chroma-go/types"
 	"github.com/tmc/langchaingo/embeddings"
@@ -10,7 +9,7 @@ import (
 	"github.com/tmc/langchaingo/vectorstores/chroma"
 )
 
-func NewChromaStore(collection string, embbederModel string) chroma.Store {
+func NewChromaStore(collection string, embbederModel string, chromaUrl string) chroma.Store {
 
 	ollamaEmbeddingsLLM, err := ollama.New(ollama.WithModel(embbederModel))
 	if err != nil {
@@ -24,7 +23,7 @@ func NewChromaStore(collection string, embbederModel string) chroma.Store {
 
 	// Create a new Chroma vector store.
 	store, errNs := chroma.New(
-		chroma.WithChromaURL(os.Getenv("CHROMA_URL")),
+		chroma.WithChromaURL(chromaUrl),
 		chroma.WithEmbedder(ollamaEmbeder),
 		chroma.WithDistanceFunction(types.COSINE),
 		chroma.WithNameSpace(collection),

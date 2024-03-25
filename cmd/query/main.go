@@ -21,16 +21,31 @@ func main() {
 		log.Fatalf("Error loading .env file: %s", err)
 	}
 
-	prompt := "What is the process to make a spaghetti carbonara?"
+	col, ok := os.LookupEnv("COLLECTION")
+	if !ok {
+		log.Panic("COLLECTION env var not set")
+	}
+
+	embbedding, ok := os.LookupEnv("EMBBEDDING_MODEL")
+	if !ok {
+		log.Panic("EMBBEDDING_MODEL env var not set")
+	}
+
+	chromaUrl, ok := os.LookupEnv("CHROMA_URL")
+	if !ok {
+		log.Panic("CHROMA_URL env var not set")
+	}
+
+	prompt := "who is Max?"
 
 	ctx := context.Background()
 
-	ollamaLLM, err := ollama.New(ollama.WithModel("mistral"))
+	ollamaLLM, err := ollama.New(ollama.WithModel("gemma:2b"))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	ollamaEmbeddingsLLM, err := ollama.New(ollama.WithModel("nomic-embed-text"))
+	ollamaEmbeddingsLLM, err := ollama.New(ollama.WithModel(embbedding))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -41,10 +56,10 @@ func main() {
 	}
 
 	store, errNs := chroma.New(
-		chroma.WithChromaURL(os.Getenv("CHROMA_URL")),
+		chroma.WithChromaURL(chromaUrl),
 		chroma.WithEmbedder(ollamaEmbeder),
 		chroma.WithDistanceFunction(types.COSINE),
-		chroma.WithNameSpace("80fd48be-ec21-427e-b255-19f25f35c869"),
+		chroma.WithNameSpace(col),
 	)
 	if errNs != nil {
 		log.Fatalf("new: %v\n", errNs)
@@ -56,7 +71,7 @@ func main() {
 	}
 
 	content := []llms.MessageContent{
-		llms.TextParts(schema.ChatMessageTypeSystem, "You are an assistant expert."),
+		llms.TextParts(schema.ChatMessageTypeSystem, "You are an assistant. Given a system context answer the human query. The system context is a set of documents. The human query is a question. The answer is a completion of the human query based"),
 		llms.TextParts(schema.ChatMessageTypeSystem, docs[0].PageContent),
 		llms.TextParts(schema.ChatMessageTypeSystem, docs[1].PageContent),
 		llms.TextParts(schema.ChatMessageTypeHuman, prompt),
