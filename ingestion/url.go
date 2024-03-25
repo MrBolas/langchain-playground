@@ -51,10 +51,11 @@ func (u *URL) Split(opts ...textsplitter.Option) []schema.Document {
 	var ts textsplitter.TextSplitter
 
 	switch u.Type {
-	case "md":
-		ts = textsplitter.NewMarkdownTextSplitter(opts...)
+	//case "md":
+	//	ts = textsplitter.NewMarkdownTextSplitter(opts...)
 	case "token":
 		ts = textsplitter.NewTokenSplitter(opts...)
+
 	default:
 		ts = textsplitter.NewRecursiveCharacter(opts...)
 	}

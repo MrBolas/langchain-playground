@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -38,6 +39,24 @@ func main() {
 	chromaUrl, ok := os.LookupEnv("CHROMA_URL")
 	if !ok {
 		log.Panic("CHROMA_URL env var not set")
+	}
+
+	cs, ok := os.LookupEnv("CHUNK_SIZE")
+	if !ok {
+		log.Panic("CHUNK_SIZE env var not set")
+	}
+	chunkSize, err := strconv.Atoi(cs)
+	if err != nil {
+		panic(err)
+	}
+
+	co, ok := os.LookupEnv("CHUNK_OVERLAP")
+	if !ok {
+		log.Panic("CHUNK_OVERLAP env var not set")
+	}
+	chunkOverlap, err := strconv.Atoi(co)
+	if err != nil {
+		panic(err)
 	}
 
 	//load vector store
@@ -73,8 +92,8 @@ func main() {
 			file := ingestion.NewFile(arguments[0])
 
 			docs := file.Split(
-				textsplitter.WithChunkSize(500),
-				textsplitter.WithChunkOverlap(100))
+				textsplitter.WithChunkSize(chunkSize),
+				textsplitter.WithChunkOverlap(chunkOverlap))
 
 			ids, err := store.AddDocuments(context.Background(), docs)
 			if err != nil {
@@ -101,8 +120,8 @@ func main() {
 			}
 
 			docs := folder.Split(
-				textsplitter.WithChunkSize(500),
-				textsplitter.WithChunkOverlap(100))
+				textsplitter.WithChunkSize(chunkSize),
+				textsplitter.WithChunkOverlap(chunkOverlap))
 
 			ids, err := store.AddDocuments(context.Background(), docs)
 			if err != nil {
@@ -129,8 +148,8 @@ func main() {
 			}
 
 			docs := url.Split(
-				textsplitter.WithChunkSize(500),
-				textsplitter.WithChunkOverlap(100))
+				textsplitter.WithChunkSize(chunkSize),
+				textsplitter.WithChunkOverlap(chunkOverlap))
 
 			ids, err := store.AddDocuments(context.Background(), docs)
 			if err != nil {

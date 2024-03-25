@@ -21,6 +21,11 @@ type PromptRequest struct {
 	Prompt string `json:"prompt"`
 }
 
+type PromptResponse struct {
+	Response string   `json:"response"`
+	Context  []string `json:"context"`
+}
+
 func NewApi(store chroma.Store) *Api {
 
 	e := echo.New()
@@ -61,7 +66,12 @@ func NewApi(store chroma.Store) *Api {
 			log.Fatalf("GenerateContent: %v\n", err)
 		}
 
-		return c.JSON(http.StatusOK, completion)
+		response := PromptResponse{
+			Response: completion.Choices[0].Content,
+			Context:  []string{docs[0].PageContent, docs[1].PageContent},
+		}
+
+		return c.JSON(http.StatusOK, response)
 	})
 
 	return &Api{
