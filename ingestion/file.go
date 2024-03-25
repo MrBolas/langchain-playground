@@ -9,6 +9,10 @@ import (
 	"github.com/tmc/langchaingo/textsplitter"
 )
 
+type IngestionSource interface {
+	Split(opts ...textsplitter.Option) []schema.Document
+}
+
 type File struct {
 	Contents []string
 	Path     string

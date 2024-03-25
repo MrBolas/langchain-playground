@@ -17,7 +17,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./volumes/ChromaDB:/app/ChromaDB
+      - ./volumes/ChromaDB:/chroma/.chroma/index
 
   anythingllm:
     image: mintplexlabs/anythingllm

@@ -9,9 +9,7 @@
 *.dylib
 .env
 
-ollama/*
-ChromaDB/*
-anythingllm/*
+volumes/*
 # Test binary, built with `go test -c`
 *.test
 

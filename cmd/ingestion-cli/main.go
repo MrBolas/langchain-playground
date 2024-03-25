@@ -26,7 +26,7 @@ func main() {
 	}
 
 	//load vector store
-	store := repository.NewChromaStore("testCollection", "nomic-embed-text")
+	store := repository.NewChromaStore("testCollection1", "nomic-embed-text")
 
 	// interactiveMode := flag.Bool("i", false, "interactive mode")
 	// targetId := flag.String("t", "", "target id")
@@ -95,6 +95,34 @@ func main() {
 				continue
 			}
 
+			fmt.Printf("Added documents with ids: %v\n", ids)
+			continue
+		}
+
+		// by URL
+		if strings.HasPrefix(text, "url") {
+			arguments, err := SanitizeInputs(text)
+			if err != nil {
+				fmt.Println(err.Error())
+				continue
+			}
+
+			url, err := ingestion.NewURL(arguments[0])
+			if err != nil {
+				fmt.Println(err.Error())
+				continue
+			}
+
+			docs := url.Split(
+				textsplitter.WithChunkSize(500),
+				textsplitter.WithChunkOverlap(100))
+
+			ids, err := store.AddDocuments(context.Background(), docs)
+			if err != nil {
+				fmt.Println(err.Error())
+				continue
+			}
+			fmt.Printf("added documents: %+v\n", docs)
 			fmt.Printf("Added documents with ids: %v\n", ids)
 			continue
 		}
