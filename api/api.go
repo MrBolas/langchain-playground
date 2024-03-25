@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/MrBolas/langchain-playground/constants"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/tmc/langchaingo/llms"
@@ -22,8 +23,8 @@ type PromptRequest struct {
 }
 
 type PromptResponse struct {
-	Response string   `json:"response"`
-	Context  []string `json:"context"`
+	Response string            `json:"response"`
+	Context  []schema.Document `json:"context"`
 }
 
 func NewApi(store chroma.Store) *Api {
@@ -44,31 +45,32 @@ func NewApi(store chroma.Store) *Api {
 		req := PromptRequest{}
 		c.Bind(&req)
 
-		ollamaLLM, err := ollama.New(ollama.WithModel("gemma:2b"))
+		ollamaLLM, err := ollama.New(ollama.WithModel("gemma"),
+			ollama.WithSystemPrompt(constants.SystemMessage))
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		docs, errSs := store.SimilaritySearch(ctx, req.Prompt, 2)
+		docs, errSs := store.SimilaritySearch(ctx, req.Prompt, 10)
 		if errSs != nil {
 			log.Fatalf("query: %v\n", errSs)
 		}
 
-		content := []llms.MessageContent{
-			llms.TextParts(schema.ChatMessageTypeSystem, "You are an assistant. Answer questions."),
-			llms.TextParts(schema.ChatMessageTypeSystem, docs[0].PageContent),
-			llms.TextParts(schema.ChatMessageTypeSystem, docs[1].PageContent),
-			llms.TextParts(schema.ChatMessageTypeHuman, req.Prompt),
+		content := []llms.MessageContent{}
+		//content = append(content, llms.TextParts(schema.ChatMessageTypeSystem, constants.SystemMessage))
+		for _, doc := range docs {
+			content = append(content, llms.TextParts(schema.ChatMessageTypeAI, doc.PageContent))
 		}
+		content = append(content, llms.TextParts(schema.ChatMessageTypeHuman, req.Prompt))
 
-		completion, err := ollamaLLM.GenerateContent(ctx, content)
+		completion, err := ollamaLLM.GenerateContent(ctx, content, llms.WithTemperature(0.2))
 		if err != nil {
 			log.Fatalf("GenerateContent: %v\n", err)
 		}
 
 		response := PromptResponse{
 			Response: completion.Choices[0].Content,
-			Context:  []string{docs[0].PageContent, docs[1].PageContent},
+			Context:  docs,
 		}
 
 		return c.JSON(http.StatusOK, response)
