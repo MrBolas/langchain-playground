@@ -63,7 +63,7 @@ func main() {
 
 	// Create the request payload
 	requestBody := OllamaRequest{
-		Model: "llama3.1:latest", // Adjust to your model
+		Model: "llama3.2:3b", // Adjust to your model
 		Messages: []Message{
 			{
 				Role:    "assistant",

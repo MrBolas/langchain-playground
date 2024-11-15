@@ -1,10 +1,12 @@
 package ingestion
 
 import (
+	"bytes"
 	"log"
 	"os"
 	"strings"
 
+	"github.com/dslipak/pdf"
 	"github.com/tmc/langchaingo/schema"
 	"github.com/tmc/langchaingo/textsplitter"
 )
@@ -22,21 +24,53 @@ type File struct {
 
 func NewFile(path string) File {
 
-	dat, err := os.ReadFile(path)
-	if err != nil {
-		log.Fatalf("ReadFile: %v\n", err)
-	}
-
 	pathElems := strings.Split(path, "/")
 	filename := pathElems[len(pathElems)-1]
 	filetype := strings.Split(filename, ".")[1]
 
+	data, err := loadFile(path, filetype)
+	if err != nil {
+		log.Fatalf("Failed to load file %s with error %e", path, err)
+	}
+
 	return File{
-		Contents: []string{string(dat)},
+		Contents: []string{data},
 		Path:     path,
 		Type:     filetype,
 		Filename: filename,
 	}
+}
+
+func loadFile(path string, fileType string) (string, error) {
+
+	var data string
+
+	switch fileType {
+	case "pdf":
+		r, err := pdf.Open(path)
+		if err != nil {
+			return "", err
+		}
+
+		var buf bytes.Buffer
+		b, err := r.GetPlainText()
+		if err != nil {
+			return "", err
+		}
+		buf.ReadFrom(b)
+		data = buf.String()
+
+		log.Printf("PDF text: %s\n", data)
+
+	default:
+		dat, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		data = string(dat)
+	}
+
+	return data, nil
 }
 
 func (f *File) Split(opts ...textsplitter.Option) []schema.Document {

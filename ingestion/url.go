@@ -4,6 +4,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/tmc/langchaingo/schema"
@@ -33,6 +34,19 @@ func NewURL(url string) (URL, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return URL{}, err
+	}
+
+	if filetype != "" {
+		os.WriteFile("data/tmp/"+filename, body, 0644)
+
+		file := NewFile("data/tmp/" + filename)
+
+		return URL{
+			URL:      url,
+			Contents: file.Contents,
+			Filename: filename,
+			Type:     filetype,
+		}, nil
 	}
 
 	return URL{
