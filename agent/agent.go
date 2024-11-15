@@ -18,6 +18,7 @@ func NewAgent(model string, maxSteps int, tools []models.Tool) *Agent {
 }
 
 func (a *Agent) Prompt(prompt string) string {
+	var haltAgent bool
 
 	// setup request
 	request := models.OllamaRequest{
@@ -36,9 +37,6 @@ func (a *Agent) Prompt(prompt string) string {
 		Stream: false,
 	}
 
-	log.Printf("[epoch 0] %s : %s", request.Messages[0].Role, request.Messages[0].Content)
-	log.Printf("[epoch 1] %s : %s", request.Messages[1].Role, request.Messages[1].Content)
-
 	ollama := models.NewOllamaClient("http://localhost:11434/api/chat")
 
 	for i := 2; i < a.maxSteps; i++ {
@@ -51,32 +49,7 @@ func (a *Agent) Prompt(prompt string) string {
 		}
 
 		if len(response.Message.ToolCall) != 0 {
-			toolCallMap := make(map[string]models.ToolCall)
-			toolCalls := response.Message.ToolCall
-			for _, toolCall := range toolCalls {
-				toolCallMap[toolCall.FunctionCall.Name] = toolCall
-			}
-			for _, tool := range a.tools {
-				if toolCall, exists := toolCallMap[tool.Function.Name]; exists {
-					log.Printf("Function called: %s with arguments: %v", tool.Function.Name, toolCall.FunctionCall.Arguments)
-					result, err := safeCall(tool.Function.Call, toolCall.FunctionCall.Arguments)
-					if err != nil {
-						request.Messages = append(request.Messages, models.Message{
-							Role:    "agent",
-							Content: fmt.Sprintf("Error calling the tool %s: %v", tool.Function.Name, err),
-						})
-						if strings.Contains(err.Error(), "Agent halted") {
-							return "Agent halted"
-						}
-						continue
-					}
-					request.Messages = append(request.Messages, models.Message{
-						Role:    "agent",
-						Content: fmt.Sprintf("function %s executed with result  %v", tool.Function.Name, result),
-					})
-					continue
-				}
-			}
+			haltAgent = a.handleToolCalls(response.Message.ToolCall, &request)
 		} else {
 			request.Messages = append(request.Messages, models.Message{
 				Role:    "agent",
@@ -84,11 +57,44 @@ func (a *Agent) Prompt(prompt string) string {
 			})
 		}
 
-		log.Printf("[epoch %d] %s : %s", i, request.Messages[i].Role,
-			strings.ReplaceAll(request.Messages[i].Content, "\n", ""))
+		if haltAgent {
+			break
+		}
+	}
+
+	for i, message := range request.Messages {
+		log.Printf("[epoch %d] %s : %s", i, message.Role, message.Content)
 	}
 
 	return prompt
+}
+
+func (a *Agent) handleToolCalls(toolCalls []models.ToolCall, request *models.OllamaRequest) bool {
+	toolMap := make(map[string]models.Tool)
+	for _, tool := range a.tools {
+		toolMap[tool.Function.Name] = tool
+	}
+
+	for _, toolCall := range toolCalls {
+		if tool, exists := toolMap[toolCall.FunctionCall.Name]; exists {
+			result, err := safeCall(tool.Function.Call, toolCall.FunctionCall.Arguments)
+			if err != nil {
+				request.Messages = append(request.Messages, models.Message{
+					Role:    "agent",
+					Content: fmt.Sprintf("Error calling the tool %s: %v", tool.Function.Name, err),
+				})
+				if strings.Contains(err.Error(), "Agent halted") {
+					return true
+				}
+				continue
+			}
+			request.Messages = append(request.Messages, models.Message{
+				Role:    "agent",
+				Content: fmt.Sprintf("function %s executed with result  %v", tool.Function.Name, result),
+			})
+		}
+	}
+	return false
 }
 
 func safeCall(fn func(map[string]any) (any, error), args map[string]any) (any, error) {

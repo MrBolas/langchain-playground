@@ -53,6 +53,6 @@ func main() {
 
 	agent := agent.NewAgent("qwen2.5:7b", 10, tools)
 
-	agent.Prompt("add number a:1 and number b:2 after that call function stop_execution")
+	agent.Prompt("whats the fibonnaci sequence?")
 	//agent.Prompt("call function stop_agent")
 }
