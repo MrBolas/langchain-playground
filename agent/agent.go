@@ -8,13 +8,64 @@ import (
 )
 
 type Agent struct {
-	model    string
-	maxSteps int
-	tools    []models.Tool
+	model           string
+	role            string
+	roleDescription string
+	maxSteps        int
+	client          *models.OllamaClient
+	tools           []models.Tool
 }
 
-func NewAgent(model string, maxSteps int, tools []models.Tool) *Agent {
-	return &Agent{model: model, maxSteps: maxSteps, tools: tools}
+func NewAgent(model string, role string, roleDescription string, maxSteps int, tools []models.Tool) *Agent {
+
+	ollama := models.NewOllamaClient("http://localhost:11434/api/chat")
+
+	return &Agent{model: model,
+		maxSteps:        maxSteps,
+		tools:           tools,
+		role:            role,
+		roleDescription: roleDescription,
+		client:          ollama,
+	}
+}
+
+func (a *Agent) Chat(Messages []models.Message) *models.Message {
+	var haltAgent bool
+
+	// setup request
+	request := models.OllamaRequest{
+		Model:    a.model,
+		Messages: Messages,
+		Tools:    a.tools,
+		Stream:   false,
+	}
+
+	for i := 2; i < a.maxSteps; i++ {
+
+		// call ollama
+		response, err := a.client.Call(request)
+		if err != nil {
+			log.Printf("Error calling Ollama API: %v", err)
+			return nil
+		}
+
+		//log.Printf("Response: %v", response)
+
+		if len(response.Message.ToolCall) != 0 {
+			haltAgent = a.handleToolCalls(response.Message.ToolCall, &request)
+		} else {
+			request.Messages = append(request.Messages, models.Message{
+				Role:    a.role,
+				Content: response.Message.Content,
+			})
+		}
+
+		if haltAgent {
+			break
+		}
+	}
+
+	return &request.Messages[len(request.Messages)-1]
 }
 
 func (a *Agent) Prompt(prompt string) string {
@@ -25,9 +76,8 @@ func (a *Agent) Prompt(prompt string) string {
 		Model: a.model,
 		Messages: []models.Message{
 			{
-				Role: "system",
-				Content: "Hello, I am Agent, a concise language model agent. " +
-					"I will answer your question briefly. I will answer the final answer starting by `Final Answer`."},
+				Role:    a.role,
+				Content: a.roleDescription},
 			{
 				Role:    "user",
 				Content: prompt,
@@ -37,12 +87,10 @@ func (a *Agent) Prompt(prompt string) string {
 		Stream: false,
 	}
 
-	ollama := models.NewOllamaClient("http://localhost:11434/api/chat")
-
 	for i := 2; i < a.maxSteps; i++ {
 
 		// call ollama
-		response, err := ollama.Call(request)
+		response, err := a.client.Call(request)
 		if err != nil {
 			log.Printf("Error calling Ollama API: %v", err)
 			return err.Error()
@@ -52,7 +100,7 @@ func (a *Agent) Prompt(prompt string) string {
 			haltAgent = a.handleToolCalls(response.Message.ToolCall, &request)
 		} else {
 			request.Messages = append(request.Messages, models.Message{
-				Role:    "agent",
+				Role:    a.role,
 				Content: response.Message.Content,
 			})
 		}
@@ -63,7 +111,7 @@ func (a *Agent) Prompt(prompt string) string {
 	}
 
 	for i, message := range request.Messages {
-		log.Printf("[epoch %d] %s : %s", i, message.Role, message.Content)
+		log.Printf("[epoch %d] %s : %s", i, message.Role, strings.ReplaceAll(message.Content, "\n", ""))
 	}
 
 	return prompt
@@ -77,20 +125,34 @@ func (a *Agent) handleToolCalls(toolCalls []models.ToolCall, request *models.Oll
 
 	for _, toolCall := range toolCalls {
 		if tool, exists := toolMap[toolCall.FunctionCall.Name]; exists {
+			log.Printf("Calling function %s with arguments %+v", tool.Function.Name, toolCall.FunctionCall.Arguments)
 			result, err := safeCall(tool.Function.Call, toolCall.FunctionCall.Arguments)
 			if err != nil {
 				request.Messages = append(request.Messages, models.Message{
-					Role:    "agent",
+					Role:    a.role,
 					Content: fmt.Sprintf("Error calling the tool %s: %v", tool.Function.Name, err),
 				})
 				if strings.Contains(err.Error(), "Agent halted") {
+					log.Printf("Agent halted")
 					return true
 				}
 				continue
 			}
 			request.Messages = append(request.Messages, models.Message{
-				Role:    "agent",
-				Content: fmt.Sprintf("function %s executed with result  %v", tool.Function.Name, result),
+				Role: "system",
+				Content: fmt.Sprintf("function llm call %s executed with arguments %+v and result  %v. %s please transform this reult into a human message.",
+					tool.Function.Name, toolCall.FunctionCall.Arguments, result, a.role),
+			})
+			// Call Ollama to generate a proper answer using the tool call result
+			//log.Printf("requests: %+v", request)
+			call, err := a.client.Call(*request)
+			if err != nil {
+				log.Printf("Error calling Ollama API: %v", err)
+				return false
+			}
+			request.Messages = append(request.Messages, models.Message{
+				Role:    a.role,
+				Content: call.Message.Content,
 			})
 		}
 	}
