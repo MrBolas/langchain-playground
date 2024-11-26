@@ -40,7 +40,7 @@ func (a *Agent) Chat(Messages []models.Message) *models.Message {
 		Stream:   false,
 	}
 
-	for i := 2; i < a.maxSteps; i++ {
+	for i := 0; i < a.maxSteps; i++ {
 
 		// call ollama
 		response, err := a.client.Call(request)
@@ -48,8 +48,6 @@ func (a *Agent) Chat(Messages []models.Message) *models.Message {
 			log.Printf("Error calling Ollama API: %v", err)
 			return nil
 		}
-
-		//log.Printf("Response: %v", response)
 
 		if len(response.Message.ToolCall) != 0 {
 			haltAgent = a.handleToolCalls(response.Message.ToolCall, &request)
@@ -61,7 +59,8 @@ func (a *Agent) Chat(Messages []models.Message) *models.Message {
 		}
 
 		if haltAgent {
-			break
+			log.Printf("Agent halted")
+			return &request.Messages[len(request.Messages)-2]
 		}
 	}
 
@@ -140,11 +139,11 @@ func (a *Agent) handleToolCalls(toolCalls []models.ToolCall, request *models.Oll
 			}
 			request.Messages = append(request.Messages, models.Message{
 				Role: "system",
-				Content: fmt.Sprintf("function llm call %s executed with arguments %+v and result  %v. %s please transform this reult into a human message.",
+				Content: fmt.Sprintf("function llm call %s executed with arguments %+v and result  %v. "+
+					"%s please transform this result into a human message.",
 					tool.Function.Name, toolCall.FunctionCall.Arguments, result, a.role),
 			})
 			// Call Ollama to generate a proper answer using the tool call result
-			//log.Printf("requests: %+v", request)
 			call, err := a.client.Call(*request)
 			if err != nil {
 				log.Printf("Error calling Ollama API: %v", err)
@@ -154,6 +153,9 @@ func (a *Agent) handleToolCalls(toolCalls []models.ToolCall, request *models.Oll
 				Role:    a.role,
 				Content: call.Message.Content,
 			})
+			if call.Message.Content != "" {
+				return true
+			}
 		}
 	}
 	return false
