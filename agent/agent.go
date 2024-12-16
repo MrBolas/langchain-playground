@@ -14,6 +14,13 @@ type Agent struct {
 	maxSteps        int
 	client          *models.OllamaClient
 	tools           []models.Tool
+	halt            bool
+}
+
+type IAgent interface {
+	Plan(input string, request *models.OllamaRequest) (*models.OllamaRequest, error)
+	Execute(request *models.OllamaRequest) (*models.OllamaResponse, error)
+	Monitor(response *models.OllamaResponse, request *models.OllamaRequest) (bool, error)
 }
 
 func NewAgent(model string, role string, roleDescription string, maxSteps int, tools []models.Tool) *Agent {
@@ -29,11 +36,74 @@ func NewAgent(model string, role string, roleDescription string, maxSteps int, t
 	}
 }
 
-func (a *Agent) Chat(Messages []models.Message) *models.Message {
-	var haltAgent bool
+func (a *Agent) Plan(input string, request *models.OllamaRequest) (*models.OllamaRequest, error) {
+	// The planning phase: Prepare the Ollama request
+	request.Messages = append(request.Messages, models.Message{
+		Role:    "system",
+		Content: "Generate a plan for the user request. " + input,
+	})
 
-	// setup request
-	request := models.OllamaRequest{
+	// make the call to the llm
+	rsp, err := a.client.Call(request)
+	if err != nil {
+		return nil, err
+	}
+
+	// Append the response to the conversation
+	request.Messages = append(request.Messages, models.Message{
+		Role:    a.role,
+		Content: rsp.Message.Content,
+	})
+	return request, nil
+}
+
+func (a *Agent) Execute(request *models.OllamaRequest) (*models.OllamaResponse, error) {
+	// The execution phase: Call Ollama API
+	request.Messages = append(request.Messages, models.Message{
+		Role:    a.role,
+		Content: "Execute the plan",
+	})
+
+	response, err := a.client.Call(request)
+	if err != nil {
+		return nil, fmt.Errorf("execution failed: %w", err)
+	}
+	return response, nil
+}
+
+func (a *Agent) Monitor(response *models.OllamaResponse, request *models.OllamaRequest) (bool, error) {
+	if len(response.Message.ToolCall) != 0 {
+		// Handle tool calls
+		toolState := a.handleTools(response.Message.ToolCall, request)
+		request.Messages = append(request.Messages, models.Message{
+			Role:    "tools",
+			Content: fmt.Sprintf("Tool state: %+v", toolState),
+		})
+
+		// Check if all required tools have been used and results processed
+		if _, ok := toolState["weather_forecast"]; ok {
+			a.halt = true // Halt if weather forecast is fulfilled
+		}
+
+		return !a.halt, nil
+	}
+
+	// Append response content to the conversation
+	request.Messages = append(request.Messages, models.Message{
+		Role:    a.role,
+		Content: response.Message.Content,
+	})
+
+	// Check if the response fulfills the user's request
+	if strings.Contains(response.Message.Content, "The weather in") {
+		a.halt = true // Stop if a summary message is detected
+	}
+
+	return !a.halt, nil
+}
+
+func (a *Agent) Chat(Messages []models.Message) *models.Message {
+	request := &models.OllamaRequest{
 		Model:    a.model,
 		Messages: Messages,
 		Tools:    a.tools,
@@ -41,26 +111,32 @@ func (a *Agent) Chat(Messages []models.Message) *models.Message {
 	}
 
 	for i := 0; i < a.maxSteps; i++ {
+		log.Printf("Epoch %d: Starting PEM cycle", i+1)
 
-		// call ollama
-		response, err := a.client.Call(request)
+		// Plan Phase
+		var err error
+		request, err = a.Plan(request.Messages[len(request.Messages)-1].Content, request)
 		if err != nil {
-			log.Printf("Error calling Ollama API: %v", err)
+			log.Printf("Planning failed: %v", err)
 			return nil
 		}
 
-		if len(response.Message.ToolCall) != 0 {
-			haltAgent = a.handleToolCalls(response.Message.ToolCall, &request)
-		} else {
-			request.Messages = append(request.Messages, models.Message{
-				Role:    a.role,
-				Content: response.Message.Content,
-			})
+		// Execute Phase
+		response, err := a.Execute(request)
+		if err != nil {
+			log.Printf("Execution failed: %v", err)
+			return nil
 		}
 
-		if haltAgent {
-			log.Printf("Agent halted")
-			return &request.Messages[len(request.Messages)-2]
+		// Monitor Phase
+		continueExecution, err := a.Monitor(response, request)
+		if err != nil {
+			log.Printf("Monitoring failed: %v", err)
+			return nil
+		}
+		if !continueExecution {
+			log.Printf("Halting agent as per monitor decision")
+			break
 		}
 	}
 
@@ -68,15 +144,14 @@ func (a *Agent) Chat(Messages []models.Message) *models.Message {
 }
 
 func (a *Agent) Prompt(prompt string) string {
-	var haltAgent bool
-
-	// setup request
-	request := models.OllamaRequest{
+	// Initialize the request with the initial prompt
+	request := &models.OllamaRequest{
 		Model: a.model,
 		Messages: []models.Message{
 			{
 				Role:    a.role,
-				Content: a.roleDescription},
+				Content: a.roleDescription,
+			},
 			{
 				Role:    "user",
 				Content: prompt,
@@ -86,34 +161,80 @@ func (a *Agent) Prompt(prompt string) string {
 		Stream: false,
 	}
 
-	for i := 2; i < a.maxSteps; i++ {
+	for i := 0; i < a.maxSteps; i++ {
+		log.Printf("Epoch %d: Starting PEM cycle for prompt", i+1)
 
-		// call ollama
-		response, err := a.client.Call(request)
+		// Plan Phase
+		plannedRequest, err := a.Plan(request.Messages[len(request.Messages)-1].Content, request)
 		if err != nil {
-			log.Printf("Error calling Ollama API: %v", err)
-			return err.Error()
+			log.Printf("Planning failed: %v", err)
+			return fmt.Sprintf("Error: %v", err)
 		}
 
-		if len(response.Message.ToolCall) != 0 {
-			haltAgent = a.handleToolCalls(response.Message.ToolCall, &request)
-		} else {
-			request.Messages = append(request.Messages, models.Message{
-				Role:    a.role,
-				Content: response.Message.Content,
-			})
+		// Execute Phase
+		response, err := a.Execute(plannedRequest)
+		if err != nil {
+			log.Printf("Execution failed: %v", err)
+			return fmt.Sprintf("Error: %v", err)
 		}
 
-		if haltAgent {
+		// Monitor Phase
+		continueExecution, err := a.Monitor(response, request)
+		if err != nil {
+			log.Printf("Monitoring failed: %v", err)
+			return fmt.Sprintf("Error: %v", err)
+		}
+		if !continueExecution {
+			log.Printf("Halting agent as per monitor decision")
 			break
 		}
 	}
 
+	// Log all messages for debugging
 	for i, message := range request.Messages {
-		log.Printf("[epoch %d] %s : %s", i, message.Role, strings.ReplaceAll(message.Content, "\n", ""))
+		log.Printf("[epoch %d] %s: %s", i, message.Role, strings.ReplaceAll(message.Content, "\n", ""))
 	}
 
-	return prompt
+	// Return the last message from the agent
+	return request.Messages[len(request.Messages)-1].Content
+}
+
+func (a *Agent) handleTools(toolCalls []models.ToolCall, request *models.OllamaRequest) map[string]any {
+
+	toolsState := make(map[string]any)
+	toolMap := make(map[string]models.Tool)
+	for _, tool := range a.tools {
+		toolMap[tool.Function.Name] = tool
+	}
+
+	for _, toolCall := range toolCalls {
+		var tool models.Tool
+		var exists bool
+		if tool, exists = toolMap[toolCall.FunctionCall.Name]; !exists {
+			request.Messages = append(request.Messages, models.Message{
+				Role:    a.role,
+				Content: fmt.Sprintf("Error: tool %s does not exist", toolCall.FunctionCall.Name),
+			})
+			continue
+		}
+
+		// call tool
+		result, err := tool.Function.Call(toolCall.FunctionCall.Arguments)
+		if err != nil {
+			request.Messages = append(request.Messages, models.Message{
+				Role:    a.role,
+				Content: fmt.Sprintf("Error calling the tool %s: %v", tool.Function.Name, err),
+			})
+			continue
+		}
+
+		toolsState[tool.Function.Name] = result
+		if result == "halt" {
+			a.halt = true
+		}
+		log.Printf("%+v", toolsState)
+	}
+	return toolsState
 }
 
 func (a *Agent) handleToolCalls(toolCalls []models.ToolCall, request *models.OllamaRequest) bool {
@@ -144,7 +265,7 @@ func (a *Agent) handleToolCalls(toolCalls []models.ToolCall, request *models.Oll
 					tool.Function.Name, toolCall.FunctionCall.Arguments, result, a.role),
 			})
 			// Call Ollama to generate a proper answer using the tool call result
-			call, err := a.client.Call(*request)
+			call, err := a.client.Call(request)
 			if err != nil {
 				log.Printf("Error calling Ollama API: %v", err)
 				return false

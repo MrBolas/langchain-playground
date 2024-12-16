@@ -47,7 +47,7 @@ func NewOllamaClient(host string) *OllamaClient {
 	return &OllamaClient{Host: host}
 }
 
-func (c *OllamaClient) Call(request OllamaRequest) (*OllamaResponse, error) {
+func (c *OllamaClient) Call(request *OllamaRequest) (*OllamaResponse, error) {
 	jsonData, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %v", err)
